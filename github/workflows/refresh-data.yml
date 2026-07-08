@@ -1,0 +1,61 @@
+name: Refresh threat-intel snapshots
+
+# Runs update-data.sh on a schedule, commits refreshed data/*.json,
+# which triggers a Netlify redeploy via the git push hook.
+#
+# Netlify itself has no built-in cron for arbitrary shell scripts —
+# this workflow is what actually keeps data/ current.
+
+on:
+  schedule:
+    # every 6 hours at :07 UTC (offset off the top-of-hour to avoid
+    # thundering-herd against abuse.ch's cron windows)
+    - cron: '7 */6 * * *'
+  workflow_dispatch: {}   # allow manual "Run workflow" from the Actions tab
+  push:
+    paths:
+      - '.github/workflows/refresh-data.yml'
+      - 'update-data.sh'
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Install curl + python (already on ubuntu-latest, but explicit)
+        run: |
+          which curl python3 || sudo apt-get update && sudo apt-get install -y curl python3
+
+      - name: Run update-data.sh
+        run: |
+          chmod +x ./update-data.sh
+          ./update-data.sh
+
+      - name: Show file sizes
+        run: ls -lh data/
+
+      - name: Commit + push if anything changed
+        run: |
+          set -e
+          git config user.name  "venom-intel-bot"
+          git config user.email "venom-intel-bot@users.noreply.github.com"
+          git add data/*.json
+          if git diff --cached --quiet; then
+            echo "No data changes — nothing to commit."
+            exit 0
+          fi
+          STAMP=$(date -u +'%Y-%m-%dT%H:%MZ')
+          git commit -m "data: refresh snapshots ${STAMP}"
+          git push

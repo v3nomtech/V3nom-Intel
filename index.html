@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="VENOM/INTEL — Open-source threat intelligence dashboard: CVEs, KEV, EPSS, IOCs, malware, C2, breaches, global threat map." />
+<meta name="theme-color" content="#0b0d10" />
+<meta name="referrer" content="no-referrer-when-downgrade" />
+<title>VENOM/INTEL — Threat Intelligence Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<link rel="stylesheet" href="css/style.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%233fb950'/%3E%3Ctext x='50%25' y='53%25' font-family='monospace' font-size='14' font-weight='800' text-anchor='middle' dominant-baseline='middle' fill='%230b0d10'%3EV/N%3C/text%3E%3C/svg%3E" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">V/N</span>
+    <span class="brand-name">VENOM<span class="slash">/</span>INTEL</span>
+  </div>
+  <input type="text" id="global-search" class="filter-input topbar-search" placeholder="Search across all feeds…" />
+  <nav class="topnav">
+    <a href="#exploitation">Exploited</a>
+    <a href="#map">Map</a>
+    <a href="#tools">Tools</a>
+    <a href="#kev">KEV</a>
+    <a href="#cve">CVE</a>
+    <a href="#iocs">IOCs</a>
+    <a href="#c2">C2</a>
+    <a href="#breach">Breaches</a>
+    <a href="#news">News</a>
+  </nav>
+  <div class="status">
+    <span class="dot live" aria-hidden="true"></span>
+    <button id="theme-toggle" class="btn-sm" aria-label="Toggle light/dark theme" title="Toggle theme (T)">◐</button>
+    <button id="refresh-all" class="btn-sm" aria-label="Refresh all feeds">Refresh all</button>
+    <button id="export-btn" class="btn-sm" aria-label="Export all data as JSON">⬇ JSON</button>
+  </div>
+</header>
+
+<div id="degraded-banner" class="degraded-banner" role="alert" hidden>
+  <span class="degraded-icon" aria-hidden="true">⚠</span>
+  <span id="degraded-msg">Some feeds are unavailable. Showing cached data where possible.</span>
+  <button class="degraded-close" aria-label="Dismiss">×</button>
+</div>
+
+<div id="search-results" class="search-results" style="display:none"></div>
+
+<section class="hero" id="dash">
+  <div class="hero-inner">
+    <div class="eyebrow"><span class="dot live"></span> Open-source · Real-time · Zero-auth</div>
+    <h1 class="title">Threat intelligence,<br /><span class="title-accent">aggregated &amp; clean.</span></h1>
+    <p class="tagline">
+      Live CVE, CISA KEV, EPSS exploit scores, abuse.ch IOCs, active C2 servers with global threat map, data breaches, infosec news, exploit feeds, and OSINT — pulled from public sources, rendered in one place. No login. No tracking.
+    </p>
+    <div class="hero-tags">
+      <span class="tag">NVD</span>
+      <span class="tag">CISA KEV</span>
+      <span class="tag">EPSS</span>
+      <span class="tag">URLhaus</span>
+      <span class="tag">ThreatFox</span>
+      <span class="tag">Feodo Tracker</span>
+      <span class="tag">CIRCL</span>
+      <span class="tag">XposedOrNot</span>
+      <span class="tag">Exploit-DB</span>
+      <span class="tag">PacketStorm</span>
+      <span class="tag">Krebs · Bleeping · THN</span>
+    </div>
+    <div class="hero-actions">
+      <a href="#tools" class="btn btn-primary">Try IOC lookup</a>
+      <a href="#kev" class="btn btn-ghost">Open dashboard</a>
+    </div>
+  </div>
+
+  <div class="threat-gauge" aria-label="Global threat level">
+    <div class="gauge-header">
+      <span class="gauge-title">Global Threat Level</span>
+      <span class="gauge-value" id="gauge-value">—</span>
+      <span class="gauge-verdict" id="gauge-verdict">calculating…</span>
+    </div>
+    <div class="gauge-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="gauge-track">
+      <div class="gauge-fill" id="gauge-fill"></div>
+      <div class="gauge-marks">
+        <span style="left:25%"></span>
+        <span style="left:50%"></span>
+        <span style="left:75%"></span>
+      </div>
+    </div>
+    <div class="gauge-breakdown" id="gauge-breakdown">
+      <span title="Ransomware CVEs in the last 30 days"><em>ransomware:</em> —</span>
+      <span title="CISA-overdue patches"><em>overdue:</em> —</span>
+      <span title="CVEs with EPSS ≥ 50%"><em>high EPSS:</em> —</span>
+      <span title="Active C2 countries"><em>C2 spread:</em> —</span>
+    </div>
+  </div>
+
+  <div class="stats-strip">
+    <div class="stat"><div class="stat-num" id="stat-cve">—</div><div class="stat-label">CVEs (7d)</div></div>
+    <div class="stat"><div class="stat-num" id="stat-kev">—</div><div class="stat-label">KEV total</div></div>
+    <div class="stat"><div class="stat-num" id="stat-crit">—</div><div class="stat-label">Critical (7d)</div></div>
+    <div class="stat"><div class="stat-num" id="stat-kev-new">—</div><div class="stat-label">KEV (30d)</div></div>
+    <div class="stat"><div class="stat-num" id="stat-countries">—</div><div class="stat-label">C2 countries</div></div>
+    <div class="stat"><div class="stat-num" id="stat-iocs">—</div><div class="stat-label">Active IOCs</div></div>
+    <div class="stat"><div class="stat-num" id="stat-c2">—</div><div class="stat-label">Active C2</div></div>
+    <div class="stat"><div class="stat-num" id="stat-news">—</div><div class="stat-label">News (24h)</div></div>
+  </div>
+</section>
+
+<section class="section" id="exploitation">
+  <div class="section-head">
+    <h2 class="section-title">🎯 Active Exploitation Tracker</h2>
+    <span class="section-sub">KEV ∩ EPSS ∩ Ransomware — patch these first</span>
+    <span id="status-exploit" class="status-pill st-loading">◌ building</span>
+    <div class="section-actions">
+      <input type="text" id="exploit-search" placeholder="Filter by vendor / product / CVE" class="filter-input" />
+    </div>
+  </div>
+
+  <div class="exploit-summary">
+    <div class="exploit-summary-card danger">
+      <div class="exploit-summary-num" id="exp-ransomware">—</div>
+      <div class="exploit-summary-label">Used in ransomware (KEV)</div>
+    </div>
+    <div class="exploit-summary-card warn">
+      <div class="exploit-summary-num" id="exp-overdue">—</div>
+      <div class="exploit-summary-label">CISA-overdue patches</div>
+    </div>
+    <div class="exploit-summary-card">
+      <div class="exploit-summary-num" id="exp-fresh">—</div>
+      <div class="exploit-summary-label">Added to KEV (30d)</div>
+    </div>
+    <div class="exploit-summary-card">
+      <div class="exploit-summary-num" id="exp-hot-epss">—</div>
+      <div class="exploit-summary-label">EPSS &gt; 50% (predicted)</div>
+    </div>
+  </div>
+
+  <div class="exploit-filters" id="exploit-filters">
+    <button class="chip-btn active" data-filter="all">All exploited</button>
+    <button class="chip-btn" data-filter="ransomware">🦠 Ransomware</button>
+    <button class="chip-btn" data-filter="overdue">⏰ Overdue</button>
+    <button class="chip-btn" data-filter="fresh">🆕 Last 30 days</button>
+    <button class="chip-btn" data-filter="epss">📈 High EPSS</button>
+  </div>
+
+  <div class="exploit-priority stagger" id="exploit-grid">
+    <div class="loading-card">Building priority list from KEV + EPSS…</div>
+  </div>
+
+  <div class="charts-grid" style="margin-top:24px">
+    <div class="chart-card">
+      <h3>KEV additions — last 90 days</h3>
+      <canvas id="chart-exploit-timeline"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Top exploited products</h3>
+      <canvas id="chart-exploit-products"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>EPSS top 15 — exploit probability</h3>
+      <canvas id="chart-epss-top"></canvas>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="map">
+  <div class="section-head">
+    <h2 class="section-title">🌐 Global Threat Map</h2>
+    <span class="section-sub">live C2 servers · attack origins · animated</span>
+    <span id="status-map" class="status-pill st-loading">◌ initializing</span>
+    <div class="section-actions">
+      <span class="map-legend">
+        <span class="leg-dot leg-low"></span>1–4
+        <span class="leg-dot leg-mid"></span>5–19
+        <span class="leg-dot leg-high"></span>20+
+      </span>
+    </div>
+  </div>
+
+  <div class="map-layout">
+    <div class="map-container">
+      <div id="threat-map"></div>
+      <div class="map-overlay-top">
+        <div class="map-stat"><span class="map-stat-num" id="map-stat-c2">0</span> Active C2</div>
+        <div class="map-stat"><span class="map-stat-num" id="map-stat-countries">0</span> Countries</div>
+        <div class="map-stat"><span class="map-stat-num" id="map-stat-attacks">0</span> Attacks shown</div>
+      </div>
+      <div class="map-attribution-overlay">Tiles © CARTO · Data © Feodo Tracker (abuse.ch)</div>
+    </div>
+
+    <aside class="map-sidebar">
+      <div class="map-side-card">
+        <h3>Top attack origins</h3>
+        <ol class="top-countries" id="top-countries"><li class="loading">Loading…</li></ol>
+      </div>
+
+      <div class="map-side-card">
+        <h3>Live attack feed</h3>
+        <div class="attack-feed" id="attack-feed">
+          <div class="attack-empty">Awaiting threat data…</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<section class="section" id="tools">
+  <div class="section-head">
+    <h2 class="section-title">Quick tools</h2>
+    <span class="section-sub">IOC reputation · diagnostics</span>
+    <div class="section-actions"><button class="btn-sm" id="diag-toggle">Show diagnostics</button></div>
+  </div>
+  <div class="tools-grid">
+    <div class="tool-card">
+      <h3>IOC reputation lookup</h3>
+      <p class="tool-desc">Paste an IPv4, domain, URL, file hash (MD5/SHA1/SHA256), or a CVE-ID. Auto-detects the type and cross-checks against URLhaus, ThreatFox, Feodo Tracker, and CIRCL CVE-Search.</p>
+      <div class="ioc-form">
+        <input type="text" id="ioc-input" class="filter-input ioc-input" placeholder="e.g. 1.2.3.4 · evil.example.com · CVE-2024-12345 · d41d8cd98f00b204e9800998ecf8427e" autocomplete="off" spellcheck="false" />
+        <button id="ioc-go" class="btn btn-primary" aria-label="Look up IOC">Lookup</button>
+        <button id="ioc-bulk-toggle" class="btn btn-ghost" aria-label="Toggle bulk IOC input" title="Paste multiple IOCs, one per line">Bulk ▾</button>
+      </div>
+      <div id="ioc-bulk-wrap" class="ioc-bulk-wrap" hidden>
+        <textarea id="ioc-bulk-input" class="filter-input" rows="6" placeholder="One IOC per line — IPs, domains, URLs, hashes, or CVE-IDs.&#10;1.2.3.4&#10;evil.example.com&#10;d41d8cd98f00b204e9800998ecf8427e&#10;CVE-2024-12345" spellcheck="false"></textarea>
+        <div class="ioc-bulk-actions">
+          <button id="ioc-bulk-go" class="btn btn-primary">Look up all</button>
+          <span id="ioc-bulk-status" class="ioc-bulk-status"></span>
+          <button id="ioc-bulk-export" class="btn-sm" hidden>⬇ Export CSV</button>
+        </div>
+      </div>
+      <div id="ioc-output"></div>
+    </div>
+  </div>
+  <div id="diag-panel" class="diag-panel">
+    <div class="diag-head">Feed diagnostics</div>
+    <div id="diag-body"></div>
+  </div>
+</section>
+
+<section class="section" id="charts">
+  <div class="section-head">
+    <h2 class="section-title">Threat metrics</h2>
+    <span class="section-sub">live · derived from feeds</span>
+  </div>
+  <div class="charts-grid">
+    <div class="chart-card"><h3>CVE severity (7d)</h3><canvas id="chart-severity"></canvas></div>
+    <div class="chart-card"><h3>KEV additions — last 12 months</h3><canvas id="chart-kev-time"></canvas></div>
+    <div class="chart-card"><h3>Top vendors in KEV</h3><canvas id="chart-vendors"></canvas></div>
+    <div class="chart-card"><h3>Top malware families (ThreatFox)</h3><canvas id="chart-malware"></canvas></div>
+    <div class="chart-card"><h3>Active C2 by country</h3><canvas id="chart-c2geo"></canvas></div>
+  </div>
+</section>
+
+<section class="section" id="kev">
+  <div class="section-head">
+    <h2 class="section-title">CISA — Known Exploited Vulnerabilities</h2>
+    <span class="section-sub">cisa.gov</span>
+    <span id="status-kev" class="status-pill st-loading">◌ loading</span>
+    <div class="section-actions">
+      <input type="text" id="kev-search" placeholder="Filter by vendor / CVE / product" class="filter-input" />
+      <button class="btn-sm" data-refresh="kev">Refresh</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>CVE</th><th>Vendor</th><th>Product</th><th>Vulnerability</th><th>Added</th><th>Due</th><th>Ransomware</th></tr></thead>
+      <tbody id="kev-body"><tr><td colspan="7" class="loading">Loading KEV catalog…</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="cve">
+  <div class="section-head">
+    <h2 class="section-title">Latest CVEs — NVD</h2>
+    <span class="section-sub">services.nvd.nist.gov · EPSS scoring</span>
+    <span id="status-cve" class="status-pill st-loading">◌ loading</span>
+    <span id="status-epss" class="status-pill st-loading">◌ epss</span>
+    <div class="section-actions">
+      <input type="text" id="cve-product" placeholder="Filter by product / vendor (apache, chrome…)" class="filter-input" />
+      <select id="cve-severity" class="filter-input">
+        <option value="">All severities</option>
+        <option value="CRITICAL">Critical</option>
+        <option value="HIGH">High</option>
+        <option value="MEDIUM">Medium</option>
+        <option value="LOW">Low</option>
+      </select>
+      <button class="btn-sm" data-refresh="cve">Refresh</button>
+    </div>
+  </div>
+  <div class="card-grid" id="cve-grid"><div class="loading-card">Fetching NVD feed…</div></div>
+</section>
+
+<section class="section" id="iocs">
+  <div class="section-head">
+    <h2 class="section-title">Active malware IOCs — ThreatFox</h2>
+    <span class="section-sub">abuse.ch · recent malware indicators</span>
+    <span id="status-threatfox" class="status-pill st-loading">◌ loading</span>
+    <div class="section-actions"><button class="btn-sm" data-refresh="threatfox">Refresh</button></div>
+  </div>
+  <div class="card-grid" id="threatfox-grid"><div class="loading-card">Fetching ThreatFox IOCs…</div></div>
+</section>
+
+<section class="section" id="urlhaus">
+  <div class="section-head">
+    <h2 class="section-title">Recent malicious URLs — URLhaus</h2>
+    <span class="section-sub">abuse.ch · payload delivery, phishing, C2 panels</span>
+    <span id="status-urlhaus" class="status-pill st-loading">◌ loading</span>
+    <div class="section-actions"><button class="btn-sm" data-refresh="urlhaus">Refresh</button></div>
+  </div>
+  <div class="card-grid" id="urlhaus-grid"><div class="loading-card">Fetching URLhaus feed…</div></div>
+</section>
+
+<section class="section" id="c2">
+  <div class="section-head">
+    <h2 class="section-title">Active C2 servers — Feodo Tracker</h2>
+    <span class="section-sub">abuse.ch · live botnet command-and-control IPs</span>
+    <span id="status-feodo" class="status-pill st-loading">◌ loading</span>
+    <div class="section-actions"><button class="btn-sm" data-refresh="feodo">Refresh</button></div>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>IP : Port</th><th>Malware</th><th>Country</th><th>ASN</th><th>First seen</th><th>Status</th></tr></thead>
+      <tbody id="feodo-body"><tr><td colspan="6" class="loading">Loading Feodo Tracker…</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section" id="breach">
+  <div class="section-head">
+    <h2 class="section-title">Recent data breaches</h2>
+    <span class="section-sub">XposedOrNot</span>
+    <span id="status-breach" class="status-pill st-loading">◌ loading</span>
+    <div class="section-actions"><button class="btn-sm" data-refresh="breach">Refresh</button></div>
+  </div>
+  <div class="card-grid" id="breach-grid"><div class="loading-card">Fetching breach data…</div></div>
+</section>
+
+<section class="section" id="news">
+  <div class="section-head">
+    <h2 class="section-title">Infosec news wire</h2>
+    <span class="section-sub">Krebs · Bleeping · The Hacker News · SANS · Dark Reading · The Register · Schneier</span>
+    <span id="status-news" class="status-pill st-loading">◌ loading</span>
+    <div class="section-actions"><button class="btn-sm" data-refresh="news">Refresh</button></div>
+  </div>
+  <div class="news-grid" id="news-grid"><div class="loading-card">Aggregating RSS feeds…</div></div>
+</section>
+
+<section class="section" id="exploits">
+  <div class="section-head">
+    <h2 class="section-title">Exploit feeds</h2>
+    <span class="section-sub">Exploit-DB · PacketStorm · GitHub Advisories</span>
+    <span id="status-exploits" class="status-pill st-loading">◌ loading</span>
+    <div class="section-actions"><button class="btn-sm" data-refresh="exploits">Refresh</button></div>
+  </div>
+  <div class="card-grid" id="exploits-grid"><div class="loading-card">Fetching exploit feeds…</div></div>
+</section>
+
+<section class="section" id="osint">
+  <div class="section-head">
+    <h2 class="section-title">OSINT — researchers &amp; sources to follow</h2>
+    <span class="section-sub">curated · the X embed ecosystem is dead in 2026 — direct links instead</span>
+  </div>
+  <div class="osint-grid" id="osint-grid"></div>
+</section>
+
+<section class="section" id="about">
+  <div class="section-head">
+    <h2 class="section-title">Sources &amp; APIs</h2>
+    <span class="section-sub">100% public · zero scraping · attribution preserved</span>
+  </div>
+  <div class="about-grid">
+    <div class="about-card">
+      <h3>Vulnerability data</h3>
+      <ul>
+        <li><a href="https://nvd.nist.gov/" target="_blank" rel="noopener">NIST NVD</a></li>
+        <li><a href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog" target="_blank" rel="noopener">CISA KEV</a></li>
+        <li><a href="https://cve.circl.lu/" target="_blank" rel="noopener">CIRCL CVE-Search</a></li>
+        <li><a href="https://www.first.org/epss/" target="_blank" rel="noopener">FIRST.org EPSS</a></li>
+        <li><a href="https://github.com/advisories" target="_blank" rel="noopener">GitHub Security Advisories</a></li>
+      </ul>
+    </div>
+    <div class="about-card">
+      <h3>Active threat intel</h3>
+      <ul>
+        <li><a href="https://urlhaus.abuse.ch/" target="_blank" rel="noopener">URLhaus (abuse.ch)</a></li>
+        <li><a href="https://threatfox.abuse.ch/" target="_blank" rel="noopener">ThreatFox (abuse.ch)</a></li>
+        <li><a href="https://feodotracker.abuse.ch/" target="_blank" rel="noopener">Feodo Tracker (abuse.ch)</a></li>
+        <li><a href="https://bazaar.abuse.ch/" target="_blank" rel="noopener">MalwareBazaar (abuse.ch)</a></li>
+        <li><a href="https://otx.alienvault.com/" target="_blank" rel="noopener">AlienVault OTX</a></li>
+        <li><a href="https://www.abuseipdb.com/" target="_blank" rel="noopener">AbuseIPDB</a></li>
+      </ul>
+    </div>
+    <div class="about-card">
+      <h3>Exploits &amp; PoCs</h3>
+      <ul>
+        <li><a href="https://www.exploit-db.com/" target="_blank" rel="noopener">Exploit-DB</a></li>
+        <li><a href="https://packetstormsecurity.com/" target="_blank" rel="noopener">PacketStorm</a></li>
+        <li><a href="https://0day.today/" target="_blank" rel="noopener">0day.today</a></li>
+      </ul>
+    </div>
+    <div class="about-card">
+      <h3>News &amp; OSINT</h3>
+      <ul>
+        <li><a href="https://krebsonsecurity.com/" target="_blank" rel="noopener">Krebs on Security</a></li>
+        <li><a href="https://www.bleepingcomputer.com/" target="_blank" rel="noopener">Bleeping Computer</a></li>
+        <li><a href="https://thehackernews.com/" target="_blank" rel="noopener">The Hacker News</a></li>
+        <li><a href="https://isc.sans.edu/" target="_blank" rel="noopener">SANS ISC</a></li>
+        <li><a href="https://www.darkreading.com/" target="_blank" rel="noopener">Dark Reading</a></li>
+        <li><a href="https://www.theregister.com/security/" target="_blank" rel="noopener">The Register</a></li>
+        <li><a href="https://xposedornot.com/" target="_blank" rel="noopener">XposedOrNot (breaches)</a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="foot-grid">
+    <div class="foot-col">
+      <div class="brand">
+        <span class="logo">V/N</span>
+        <span class="brand-name">VENOM<span class="slash">/</span>INTEL</span>
+      </div>
+      <p class="foot-text" style="margin-top:12px">
+        Open-source threat intelligence aggregator. Built for defenders, researchers, and curious minds.
+        All data sourced from publicly available feeds.
+      </p>
+    </div>
+    <div class="foot-col">
+      <h4>Legal</h4>
+      <p class="foot-text">
+        Data is aggregated from public APIs and RSS feeds under fair-use research provisions.
+        All trademarks and attributions remain with their original owners.
+      </p>
+    </div>
+    <div class="foot-col">
+      <h4>Signature</h4>
+      <div class="watermark-big">CYbErXV3nOm</div>
+      <div class="foot-text">crafted &amp; signed</div>
+    </div>
+  </div>
+  <div class="foot-bar">
+    <span>© <span id="year"></span> VENOM/INTEL</span>
+    <span class="watermark-mini">signed: CYbErXV3nOm</span>
+    <span>build.<span id="build-id">A1B2C3</span></span>
+  </div>
+</footer>
+
+<div class="floating-watermark" aria-hidden="true">CYbErXV3nOm</div>
+
+<div id="pin-tray" class="pin-tray" hidden aria-label="Pinned CVEs">
+  <div class="pin-tray-head">
+    <span class="pin-tray-title">📌 Pinned CVEs</span>
+    <span class="pin-tray-count" id="pin-tray-count">0</span>
+    <button class="pin-tray-clear" id="pin-tray-clear" aria-label="Clear all pins">clear</button>
+    <button class="pin-tray-close" id="pin-tray-close" aria-label="Collapse pin tray">–</button>
+  </div>
+  <div class="pin-tray-body" id="pin-tray-body"></div>
+  <div class="pin-tray-foot">
+    <button class="btn-sm" id="pin-compare">Compare</button>
+    <button class="btn-sm" id="pin-copy">Copy IDs</button>
+    <button class="btn-sm" id="pin-export">⬇ CSV</button>
+  </div>
+</div>
+
+<script src="js/app.js" defer></script>
+</body>
+</html>

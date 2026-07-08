@@ -1,0 +1,23 @@
+# Local tool config — never push
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Netlify / node build artefacts
+.netlify/
+node_modules/
+functions/*/node_modules/
+
+# Local env / secrets
+.env
+.env.local
+.env.*.local
+
+# Ad-hoc / scratch
+*.log
+*.tmp
+data/*.json.tmp
